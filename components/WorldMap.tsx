@@ -36,8 +36,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
         maxZoom: 6,
         zoomControl: false,
         attributionControl: false,
-        maxBounds: [[-90, -180], [90, 180]],
-        maxBoundsViscosity: 1.0
+        worldCopyJump: true // Seamless wrapping
     });
 
     // Dark Matter Tile Layer (Political borders, dark theme)
