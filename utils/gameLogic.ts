@@ -5,11 +5,11 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const calculateDesignCost = (design: Design): number => {
   let cost = 0;
-  cost += design.engineCount * CONSTANTS.COST_PER_ENGINE;
-  cost += design.armor * CONSTANTS.COST_PER_ARMOR;
-  cost += design.cargoCapacity * CONSTANTS.COST_PER_CARGO;
-  if (design.gunCount > 0) {
-    cost += design.gunCount * design.gunLength * CONSTANTS.COST_PER_GUN_LENGTH;
+  cost += (design.engineCount || 0) * CONSTANTS.COST_PER_ENGINE;
+  cost += (design.armor || 0) * CONSTANTS.COST_PER_ARMOR;
+  cost += (design.cargoCapacity || 0) * CONSTANTS.COST_PER_CARGO;
+  if ((design.gunCount || 0) > 0) {
+    cost += (design.gunCount || 0) * (design.gunLength || 0) * CONSTANTS.COST_PER_GUN_LENGTH;
   }
   return Math.max(1, cost); // Minimum cost 1
 };
@@ -214,7 +214,7 @@ export const processTurn = (currentState: GameState): GameState => {
        // Move armies randomly
        const armies = nextState.armies.filter(a => a.ownerId === ai.id && a.locationId === country.id && !a.destinationId);
        armies.forEach(army => {
-          if (Math.random() > 0.7) { // 30% chance to move
+          if (Math.random() > 0.8) { // 20% chance to move
              const targetId = country.neighbors[Math.floor(Math.random() * country.neighbors.length)];
              army.destinationId = targetId;
           }
@@ -471,5 +471,35 @@ export const processTurn = (currentState: GameState): GameState => {
     }
   });
 
+  // 5. AI Army Management (Muster Forces)
+  nextState.countries.forEach(country => {
+     if (country.ownerId) {
+        const owner = nextState.players.find(p => p.id === country.ownerId);
+        if (owner && owner.type === PlayerType.AI) {
+            // Find loose units that are NOT in an army
+            const armyUnitIds = new Set(nextState.armies.flatMap(a => a.unitIds));
+            const looseUnits = nextState.units.filter(u => u.ownerId === owner.id && u.locationId === country.id && !armyUnitIds.has(u.id));
+            
+            if (looseUnits.length > 0) {
+                // Find existing army in this country to add to, or create new one
+                let army = nextState.armies.find(a => a.ownerId === owner.id && a.locationId === country.id);
+                if (!army) {
+                    army = {
+                        id: uuidv4(),
+                        ownerId: owner.id,
+                        locationId: country.id,
+                        destinationId: null,
+                        unitIds: []
+                    };
+                    nextState.armies.push(army);
+                }
+                // Add units
+                army.unitIds.push(...looseUnits.map(u => u.id));
+            }
+        }
+     }
+  });
+
   return nextState;
 };
+

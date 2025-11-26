@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameState, Player, Country, Design, Unit, Army, CombatLog, PlayerType, CONSTANTS } from './types';
 import { INITIAL_COUNTRIES } from './utils/mapData';
@@ -10,6 +9,7 @@ import CountryModal from './components/CountryModal';
 import FactoryModal from './components/FactoryModal';
 import BattleViewer from './components/BattleViewer';
 import TurnReportModal from './components/TurnReportModal';
+import RulesModal from './components/RulesModal';
 import { v4 as uuidv4 } from 'uuid';
 
 // Ensure full Country object shape to avoid NaN issues
@@ -39,7 +39,7 @@ const createInitialState = (): GameState => ({
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(createInitialState());
-  const [activeModal, setActiveModal] = useState<'NONE' | 'BUREAU' | 'COUNTRY' | 'FACTORY' | 'BATTLE' | 'ARMY' | 'REPORT'>('NONE');
+  const [activeModal, setActiveModal] = useState<'NONE' | 'BUREAU' | 'COUNTRY' | 'FACTORY' | 'BATTLE' | 'ARMY' | 'REPORT' | 'RULES'>('NONE');
   const [viewingBattleId, setViewingBattleId] = useState<string | null>(null);
   const [turnReportLogs, setTurnReportLogs] = useState<CombatLog[]>([]);
 
@@ -125,8 +125,14 @@ export default function App() {
       <div className="absolute top-0 left-0 w-full h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6 z-10 shadow-lg">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold tracking-wider text-blue-400">TERRA CONFLICT</h1>
+          <button 
+             onClick={() => setActiveModal('RULES')}
+             className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs font-semibold text-slate-300 border border-slate-600"
+          >
+             Rules
+          </button>
           {gameState.gameStatus === 'PLAYING' && (
-             <div className="flex items-center gap-4 text-sm">
+             <div className="flex items-center gap-4 text-sm ml-4 border-l border-slate-700 pl-4">
                 <span className="bg-slate-700 px-3 py-1 rounded">Turn: {gameState.turn}</span>
                 <span className="text-slate-400">Player: {humanPlayer?.name}</span>
              </div>
@@ -162,7 +168,13 @@ export default function App() {
          {gameState.gameStatus === 'LOBBY' && (
             <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 bg-slate-800/90 p-6 rounded-xl border border-blue-500 text-center shadow-2xl backdrop-blur-sm max-w-lg">
                <h2 className="text-2xl font-bold mb-2 text-white">Select Your Nation</h2>
-               <p className="text-slate-300">Click on any country on the map to begin your conquest.</p>
+               <p className="text-slate-300 mb-4">Click on any country on the map to begin your conquest.</p>
+               <button 
+                 onClick={() => setActiveModal('RULES')}
+                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm font-bold text-white border border-slate-500"
+               >
+                 Read How To Play
+               </button>
             </div>
          )}
          
@@ -182,6 +194,10 @@ export default function App() {
       </div>
 
       {/* Modals */}
+      {activeModal === 'RULES' && (
+        <RulesModal onClose={() => setActiveModal('NONE')} />
+      )}
+
       {activeModal === 'BUREAU' && (
         <DesignBureau 
           player={humanPlayer!} 

@@ -301,7 +301,7 @@ const CountryModal: React.FC<Props> = ({ country, player, isOwner, gameState, se
                             <span className="text-slate-300 font-medium">Materials</span>
                             <span className="font-mono font-bold text-yellow-400 text-xl">{Math.floor(country.materials)}</span>
                         </div>
-                        {isOwner && country.lastTurnStats && (
+                        {country.lastTurnStats && (
                         <div className="text-xs text-slate-400 space-y-1 pt-2 border-t border-slate-600 mt-2">
                             <div className="flex justify-between text-green-400">
                                 <span>Income (Pop):</span>
@@ -315,7 +315,7 @@ const CountryModal: React.FC<Props> = ({ country, player, isOwner, gameState, se
                         )}
                     </div>
 
-                    {isOwner && country.lastTurnStats && country.lastTurnStats.unitsProduced > 0 && (
+                    {country.lastTurnStats && country.lastTurnStats.unitsProduced > 0 && (
                     <div className="bg-green-900/40 border border-green-800 p-2 rounded text-center text-green-300 text-sm">
                         Produced {country.lastTurnStats.unitsProduced} units last year.
                     </div>
@@ -498,3 +498,4 @@ const Stat = ({ label, value, max, highlight }: { label: string, value: number, 
 );
 
 export default CountryModal;
+
