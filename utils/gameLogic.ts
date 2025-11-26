@@ -1,5 +1,4 @@
 
-
 import { GameState, Player, Country, Unit, Design, Army, CombatLog, CONSTANTS, PlayerType, FactoryQueueItem } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -63,6 +62,22 @@ const generateAiDesign = (playerId: string, turn: number): Design => {
   return fullDesign;
 };
 
+// Helper to calculate army speed (min engine count of units)
+const getArmySpeed = (army: Army, units: Unit[], designMap: Record<string, Design>): number => {
+    if (army.unitIds.length === 0) return 0;
+    let minSpeed = 999;
+    let hasUnits = false;
+    army.unitIds.forEach(uid => {
+        const u = units.find(unit => unit.id === uid);
+        if (u) {
+            hasUnits = true;
+            const d = designMap[u.designId];
+            if (d && d.engineCount < minSpeed) minSpeed = d.engineCount;
+        }
+    });
+    return hasUnits ? (minSpeed === 999 ? 0 : minSpeed) : 0;
+};
+
 export const resolveCombat = (
   attackerArmy: Army, 
   defenderArmy: Army, 
@@ -81,6 +96,9 @@ export const resolveCombat = (
     attackerId: attackerArmy.ownerId,
     defenderId: defenderArmy.ownerId,
     winnerId: '',
+    // Snapshot rosters
+    attackerUnits: attackerUnits.map(u => ({ id: u.id, designId: u.designId })),
+    defenderUnits: defenderUnits.map(u => ({ id: u.id, designId: u.designId })),
     rounds: []
   };
 
@@ -183,11 +201,11 @@ export const resolveCombat = (
 export const processTurn = (currentState: GameState): GameState => {
   const nextState = JSON.parse(JSON.stringify(currentState)) as GameState;
   nextState.turn += 1;
+  const designMap = nextState.designs.reduce((acc, d) => ({...acc, [d.id]: d}), {} as Record<string, Design>);
 
   // 1. AI Logic: Design & Move
   nextState.players.filter(p => p.type === PlayerType.AI).forEach(ai => {
     // A. AI Design Phase
-    // Chance to design a new unit: 15% per turn, OR if they have 0 designs
     const myDesigns = nextState.designs.filter(d => d.playerId === ai.id);
     if (myDesigns.length === 0 || Math.random() < 0.15) {
        const newDesign = generateAiDesign(ai.id, nextState.turn);
@@ -197,11 +215,10 @@ export const processTurn = (currentState: GameState): GameState => {
     // B. AI Production & Movement
     const aiCountries = nextState.countries.filter(c => c.ownerId === ai.id);
     aiCountries.forEach(country => {
-       // Production: If queue empty, pick a design
+       // Production
        if (!country.factoryQueue) {
           const availableDesigns = nextState.designs.filter(d => d.playerId === ai.id);
           if (availableDesigns.length > 0) {
-             // Pick random design (could be improved to pick best counter)
              const chosenDesign = availableDesigns[Math.floor(Math.random() * availableDesigns.length)];
              country.factoryQueue = {
                 designId: chosenDesign.id,
@@ -211,19 +228,16 @@ export const processTurn = (currentState: GameState): GameState => {
           }
        }
        
-       // Move armies randomly
+       // Schedule Movement
        const armies = nextState.armies.filter(a => a.ownerId === ai.id && a.locationId === country.id && !a.destinationId);
        armies.forEach(army => {
-          if (Math.random() > 0.8) { // 20% chance to move
+          if (Math.random() > 0.8) { 
              const targetId = country.neighbors[Math.floor(Math.random() * country.neighbors.length)];
              army.destinationId = targetId;
           }
        });
     });
   });
-
-  // Re-index designs for lookup
-  const designMap = nextState.designs.reduce((acc, d) => ({...acc, [d.id]: d}), {} as Record<string, Design>);
 
   // 2. Movement
   const movingArmies = nextState.armies.filter(a => a.destinationId);
@@ -232,246 +246,29 @@ export const processTurn = (currentState: GameState): GameState => {
   movingArmies.forEach(army => {
     if (handledArmyIds.has(army.id)) return;
     
+    // Check engines for all units in army. If any unit has 0 engines, army cannot move.
+    const canMove = army.unitIds.every(uid => {
+        const u = nextState.units.find(unit => unit.id === uid);
+        const d = u ? designMap[u.designId] : null;
+        return d && d.engineCount > 0;
+    });
+
+    if (!canMove) {
+        // Cancel move if engines are missing
+        army.destinationId = null;
+        return;
+    }
+
     const destId = army.destinationId!;
-    
-    // Move army to destination
     army.locationId = destId;
     army.destinationId = null;
-
-    // Update location of all units in this army
     army.unitIds.forEach(uid => {
       const u = nextState.units.find(unit => unit.id === uid);
       if(u) u.locationId = destId;
     });
   });
 
-  // 3. Combat & Bombardment & Occupation
-  nextState.countries.forEach(country => {
-    const armiesHere = nextState.armies.filter(a => a.locationId === country.id);
-    if (armiesHere.length === 0) return;
-
-    // Group by owner
-    const owners = Array.from(new Set(armiesHere.map(a => a.ownerId)));
-    
-    let currentCombatLog: CombatLog | null = null;
-    let dominantPlayerId: string | null = null;
-    let survivingUnits: Unit[] = [];
-
-    // --- PHASE A: BATTLE ---
-    // Battle occurs if more than 1 player is present
-    if (owners.length > 1) {
-      const ownerId = country.ownerId;
-      // If the owner is one of the armies, they are defender.
-      const defenderId = owners.find(id => id === ownerId) || owners[0];
-      const defenders = armiesHere.filter(a => a.ownerId === defenderId);
-      const attackers = armiesHere.filter(a => a.ownerId !== defenderId); 
-      
-      // Merge all defender armies for the battle
-      const defenderUnits = defenders.flatMap(a => a.unitIds.map(uid => nextState.units.find(u => u.id === uid)!));
-      const attackerUnits = attackers.flatMap(a => a.unitIds.map(uid => nextState.units.find(u => u.id === uid)!));
-      
-      // Use the first attacking army as the "lead" for the log
-      const attackerArmy = attackers[0];
-      const consolidatedDefenderArmy: Army = {
-         id: 'defense_force', ownerId: defenderId || 'neutral', locationId: country.id, destinationId: null, unitIds: defenderUnits.map(u => u.id)
-      };
-
-      const result = resolveCombat(
-         attackerArmy, 
-         consolidatedDefenderArmy,
-         attackerUnits,
-         defenderUnits,
-         designMap,
-         designMap,
-         country.id,
-         nextState.turn
-      );
-
-      currentCombatLog = result.combatLog;
-      dominantPlayerId = result.combatLog.winnerId;
-
-      // Remove dead units
-      const survivorIds = new Set([...result.survivingAttackerIds, ...result.survivingDefenderIds]);
-      nextState.units = nextState.units.filter(u => survivorIds.has(u.id));
-      
-      // Update armies
-      nextState.armies.forEach(a => {
-         a.unitIds = a.unitIds.filter(uid => survivorIds.has(uid));
-      });
-      nextState.armies = nextState.armies.filter(a => a.unitIds.length > 0);
-      
-      survivingUnits = nextState.units.filter(u => survivorIds.has(u.id) && u.locationId === country.id && u.ownerId === dominantPlayerId);
-
-    } else {
-      // Only one army owner present - they are automatically dominant
-      dominantPlayerId = owners[0];
-      survivingUnits = armiesHere.flatMap(a => a.unitIds.map(uid => nextState.units.find(u => u.id === uid)!));
-    }
-
-
-    // --- PHASE B: BOMBARDMENT / OCCUPATION ---
-    // If the dominant army is NOT the country owner, they bombard/occupy
-    // This happens if they won the battle OR if they walked in unopposed
-    if (dominantPlayerId && dominantPlayerId !== country.ownerId) {
-        let totalGunPower = 0;
-        
-        // Calculate power of all units belonging to dominant player in this country
-        survivingUnits.forEach(u => {
-            if (u.ownerId === dominantPlayerId) {
-                const des = designMap[u.designId];
-                if (des && des.gunCount > 0) {
-                    totalGunPower += (des.gunCount * des.gunLength);
-                }
-            }
-        });
-
-        // Bombardment Damage
-        let killPower = totalGunPower;
-        const colonistsKilled = Math.min(country.colonists || 0, killPower);
-        if (country.colonists) country.colonists -= colonistsKilled;
-        killPower -= colonistsKilled;
-
-        const popKilled = Math.min(country.population, killPower);
-        country.population -= popKilled;
-        
-        const bombardmentResult = {
-            colonistsKilled,
-            populationKilled: popKilled,
-            invaded: false
-        };
-
-        // Invasion Check (Capture)
-        if (country.population <= 0 && (!country.colonists || country.colonists <= 0)) {
-            let landedColonists = 0;
-            survivingUnits.forEach(u => {
-                if (u.ownerId === dominantPlayerId) {
-                    if (u.cargo.colonists > 0) {
-                        landedColonists += u.cargo.colonists;
-                        u.cargo.colonists = 0; 
-                    }
-                    if (u.cargo.population > 0) {
-                        landedColonists += u.cargo.population; 
-                        u.cargo.population = 0;
-                    }
-                }
-            });
-
-            if (landedColonists > 0) {
-                country.ownerId = dominantPlayerId;
-                country.factoryQueue = null; 
-                const space = country.maxPopulation; 
-                const newPop = Math.min(landedColonists, space);
-                country.population = newPop;
-                country.colonists = landedColonists - newPop;
-                bombardmentResult.invaded = true;
-            }
-        }
-
-        // --- LOGGING ---
-        if (currentCombatLog) {
-            // Append to battle log
-            currentCombatLog.bombardmentResult = bombardmentResult;
-            nextState.combatLogs.push(currentCombatLog);
-        } else {
-            // Create a Siege Log (No battle, just bombardment)
-            // Only log if something actually happened (damage dealt OR invaded)
-            // Or if an army moved in unopposed, we want to know
-            const siegeLog: CombatLog = {
-                id: uuidv4(),
-                locationId: country.id,
-                turn: nextState.turn,
-                attackerId: dominantPlayerId,
-                defenderId: country.ownerId || 'neutral',
-                winnerId: dominantPlayerId,
-                rounds: [], // Siege/Unopposed
-                bombardmentResult
-            };
-            nextState.combatLogs.push(siegeLog);
-        }
-    } else {
-        // If battle happened but Defender won, we still need to save the log
-        if (currentCombatLog) {
-            nextState.combatLogs.push(currentCombatLog);
-        }
-    }
-  });
-
-
-  // 4. Production & Resources
-  nextState.countries.forEach(country => {
-    if (country.ownerId) {
-        // Init stats for this turn
-        country.lastTurnStats = { materialsProduced: 0, materialsConsumed: 0, unitsProduced: 0 };
-
-        const currentWorkforce = country.population;
-
-        // --- Material Production ---
-        // "One unit of population produces one unit of material"
-        const production = Number(currentWorkforce);
-        country.materials = Number(country.materials || 0) + production;
-        country.lastTurnStats.materialsProduced = production;
-
-        // --- Factory Production ---
-        if (country.factoryQueue) {
-            const queue = country.factoryQueue;
-            const productionSpeed = currentWorkforce; // Speed depends on population
-            
-            // Available materials for this turn (current stock)
-            const materialsAvailable = country.materials;
-            
-            // Production is limited by Speed AND Materials
-            let buildCapacity = Math.min(productionSpeed, materialsAvailable);
-            
-            if (buildCapacity > 0) {
-                while (buildCapacity > 0) {
-                    const neededForCurrent = queue.totalCost - queue.progress;
-                    
-                    if (buildCapacity >= neededForCurrent) {
-                        // Finish Unit
-                        country.materials -= neededForCurrent;
-                        country.lastTurnStats.materialsConsumed += neededForCurrent;
-                        buildCapacity -= neededForCurrent;
-                        
-                        // Create Unit
-                        const newUnit: Unit = {
-                            id: uuidv4(),
-                            designId: queue.designId,
-                            ownerId: country.ownerId,
-                            locationId: country.id, // Produced at country
-                            hp: 1,
-                            cargo: { colonists: 0, materials: 0, population: 0 }
-                        };
-                        nextState.units.push(newUnit);
-                        country.lastTurnStats.unitsProduced += 1;
-                        
-                        // Reset queue progress (keep design active for next one)
-                        queue.progress = 0;
-                    } else {
-                        // Partial Progress
-                        country.materials -= buildCapacity;
-                        country.lastTurnStats.materialsConsumed += buildCapacity;
-                        queue.progress += buildCapacity;
-                        buildCapacity = 0; // Exhausted capacity
-                    }
-                }
-            }
-        }
-
-        // --- Population Growth ---
-        // "Every turn population grows with coefficient 1.5"
-        let newPop = Math.floor(country.population * CONSTANTS.POPULATION_GROWTH);
-        
-        // "If population exceeds country size, excess becomes colonists"
-        if (newPop > country.maxPopulation) {
-            const overflow = newPop - country.maxPopulation;
-            country.colonists = (country.colonists || 0) + overflow;
-            newPop = country.maxPopulation;
-        }
-        country.population = newPop;
-    }
-  });
-
-  // 5. AI Army Management (Muster Forces)
+  // 2.5 AI Muster Forces (Before combat)
   nextState.countries.forEach(country => {
      if (country.ownerId) {
         const owner = nextState.players.find(p => p.id === country.ownerId);
@@ -493,13 +290,281 @@ export const processTurn = (currentState: GameState): GameState => {
                     };
                     nextState.armies.push(army);
                 }
-                // Add units
                 army.unitIds.push(...looseUnits.map(u => u.id));
             }
         }
      }
   });
 
+  // 3. Combat & Bombardment & Occupation
+  
+  // Track units to destroy globally after all battles resolve
+  const unitsToDestroy = new Set<string>();
+
+  nextState.countries.forEach(country => {
+    const armiesHere = nextState.armies.filter(a => a.locationId === country.id);
+    if (armiesHere.length === 0) return;
+
+    // --- SEQUENTIAL COMBAT LOGIC ---
+    
+    // 1. Identify Defenders (Country Owner's Armies)
+    const defenderArmies = armiesHere.filter(a => a.ownerId === country.ownerId);
+    let kingArmy: Army | null = null;
+    
+    // Merge all defender armies into one force if present
+    if (defenderArmies.length > 0) {
+        const primary = defenderArmies[0];
+        primary.unitIds = defenderArmies.flatMap(a => a.unitIds); // Merge IDs
+        kingArmy = primary; 
+        
+        // Remove other defender armies from the local calculation list to prevent dupes, 
+        // effectively they are merged into 'primary'.
+        // In the global 'nextState.armies', we will clean up empty armies later.
+        for (let i = 1; i < defenderArmies.length; i++) {
+            defenderArmies[i].unitIds = []; // Empty them out
+        }
+    }
+
+    // 2. Identify Invaders
+    const invaderArmies = armiesHere.filter(a => a.ownerId !== country.ownerId && a.unitIds.length > 0);
+    
+    // 3. Sort Invaders by Speed (Fastest First), then Random
+    const invaderSpecs = invaderArmies.map(army => ({
+        army,
+        speed: getArmySpeed(army, nextState.units, designMap)
+    }));
+
+    invaderSpecs.sort((a, b) => {
+        if (b.speed !== a.speed) return b.speed - a.speed; // Descending Speed
+        return Math.random() - 0.5; // Random Tiebreaker
+    });
+
+    const battleQueue = invaderSpecs.map(s => s.army);
+
+    // 4. Determine Initial King (if no defender existed)
+    if (!kingArmy) {
+        if (battleQueue.length > 0) {
+            kingArmy = battleQueue.shift()!;
+        } else {
+            // Nothing to do
+            return;
+        }
+    }
+
+    // 5. Combat Loop (King vs Queue)
+    while (battleQueue.length > 0) {
+        const challenger = battleQueue.shift()!;
+        
+        // Ensure King has units (might have died in previous loop iteration logic if swapped)
+        const kingHasUnits = kingArmy.unitIds.some(uid => !unitsToDestroy.has(uid));
+        if (!kingHasUnits) {
+            // If King is dead/empty, Challenger takes the hill without fight
+            kingArmy = challenger;
+            continue;
+        }
+        
+        // Check for Friendly Merge (Same Owner)
+        if (kingArmy.ownerId === challenger.ownerId) {
+            // Merge challenger into King
+            const challengerUnits = challenger.unitIds.filter(uid => !unitsToDestroy.has(uid));
+            kingArmy.unitIds.push(...challengerUnits);
+            challenger.unitIds = []; // Empty the challenger army
+            continue;
+        }
+
+        // --- FIGHT ---
+        const kingUnits = nextState.units.filter(u => kingArmy!.unitIds.includes(u.id) && !unitsToDestroy.has(u.id));
+        const challengerUnits = nextState.units.filter(u => challenger.unitIds.includes(u.id) && !unitsToDestroy.has(u.id));
+
+        if (kingUnits.length === 0 || challengerUnits.length === 0) continue; // Should be covered, but safety first
+
+        const result = resolveCombat(
+            challenger, // Attacker (Challenger)
+            kingArmy,   // Defender (King)
+            challengerUnits,
+            kingUnits,
+            designMap,
+            designMap,
+            country.id,
+            nextState.turn
+        );
+
+        nextState.combatLogs.push(result.combatLog);
+
+        // Mark deaths
+        const survivors = new Set([...result.survivingAttackerIds, ...result.survivingDefenderIds]);
+        [...kingUnits, ...challengerUnits].forEach(u => {
+            if (!survivors.has(u.id)) {
+                unitsToDestroy.add(u.id);
+            }
+        });
+
+        // Update Army Unit Lists immediately for next iteration logic
+        kingArmy.unitIds = kingArmy.unitIds.filter(uid => result.survivingDefenderIds.includes(uid));
+        challenger.unitIds = challenger.unitIds.filter(uid => result.survivingAttackerIds.includes(uid));
+
+        // Winner Check
+        if (kingArmy.unitIds.length === 0) {
+            if (challenger.unitIds.length > 0) {
+                // Challenger Wins and becomes King
+                kingArmy = challenger;
+            } else {
+                // Mutual Destruction
+                // Pick next from queue if available
+                if (battleQueue.length > 0) {
+                    kingArmy = battleQueue.shift()!;
+                } else {
+                    kingArmy = null;
+                }
+            }
+        }
+        // If King survives, they remain King and fight the next challenger.
+    }
+
+
+    // --- PHASE B: BOMBARDMENT / OCCUPATION (by the final King) ---
+    if (kingArmy && kingArmy.unitIds.length > 0) {
+        const dominantPlayerId = kingArmy.ownerId;
+        
+        // Check if hostile to country
+        if (dominantPlayerId !== country.ownerId) {
+            const survivingLocalUnits = nextState.units.filter(u => 
+                kingArmy!.unitIds.includes(u.id) && !unitsToDestroy.has(u.id)
+            );
+
+            let totalGunPower = 0;
+            survivingLocalUnits.forEach(u => {
+                const des = designMap[u.designId];
+                if (des && des.gunCount > 0) {
+                    totalGunPower += (des.gunCount * des.gunLength);
+                }
+            });
+
+            let killPower = totalGunPower;
+            const colonistsKilled = Math.min(country.colonists || 0, killPower);
+            if (country.colonists) country.colonists -= colonistsKilled;
+            killPower -= colonistsKilled;
+
+            const popKilled = Math.min(country.population, killPower);
+            country.population -= popKilled;
+            
+            const bombardmentResult = {
+                colonistsKilled,
+                populationKilled: popKilled,
+                invaded: false
+            };
+
+            // Invasion Logic (Desant)
+            if (country.population <= 0 && (!country.colonists || country.colonists <= 0)) {
+                let landedColonists = 0;
+                survivingLocalUnits.forEach(u => {
+                    if (u.cargo.colonists > 0) {
+                        landedColonists += u.cargo.colonists;
+                        u.cargo.colonists = 0; 
+                    }
+                    if (u.cargo.population > 0) {
+                        landedColonists += u.cargo.population; 
+                        u.cargo.population = 0;
+                    }
+                });
+
+                if (landedColonists > 0) {
+                    country.ownerId = dominantPlayerId;
+                    country.factoryQueue = null; 
+                    const space = country.maxPopulation; 
+                    const newPop = Math.min(landedColonists, space);
+                    country.population = newPop;
+                    country.colonists = landedColonists - newPop;
+                    bombardmentResult.invaded = true;
+                }
+            }
+
+            // Append bombardment result to the LAST log if it exists, or create a siege log
+            const lastLog = nextState.combatLogs[nextState.combatLogs.length - 1];
+            if (lastLog && lastLog.locationId === country.id && lastLog.turn === nextState.turn) {
+                lastLog.bombardmentResult = bombardmentResult;
+            } else {
+                // Unopposed Siege/Bombardment Log
+                const siegeLog: CombatLog = {
+                    id: uuidv4(),
+                    locationId: country.id,
+                    turn: nextState.turn,
+                    attackerId: dominantPlayerId,
+                    defenderId: country.ownerId || 'neutral',
+                    winnerId: dominantPlayerId,
+                    rounds: [], 
+                    attackerUnits: survivingLocalUnits.map(u => ({ id: u.id, designId: u.designId })),
+                    defenderUnits: [],
+                    bombardmentResult
+                };
+                nextState.combatLogs.push(siegeLog);
+            }
+        }
+    }
+  });
+
+  // 4. Cleanup Dead Units & Empty Armies globally
+  nextState.units = nextState.units.filter(u => !unitsToDestroy.has(u.id));
+  nextState.armies.forEach(a => {
+      a.unitIds = a.unitIds.filter(uid => !unitsToDestroy.has(uid));
+  });
+  nextState.armies = nextState.armies.filter(a => a.unitIds.length > 0);
+
+
+  // 5. Production & Resources
+  nextState.countries.forEach(country => {
+    if (country.ownerId) {
+        country.lastTurnStats = { materialsProduced: 0, materialsConsumed: 0, unitsProduced: 0 };
+        const currentWorkforce = country.population;
+        const production = Number(currentWorkforce);
+        country.materials = Number(country.materials || 0) + production;
+        country.lastTurnStats.materialsProduced = production;
+
+        if (country.factoryQueue) {
+            const queue = country.factoryQueue;
+            const productionSpeed = currentWorkforce; 
+            const materialsAvailable = country.materials;
+            let buildCapacity = Math.min(productionSpeed, materialsAvailable);
+            
+            if (buildCapacity > 0) {
+                while (buildCapacity > 0) {
+                    const neededForCurrent = queue.totalCost - queue.progress;
+                    
+                    if (buildCapacity >= neededForCurrent) {
+                        country.materials -= neededForCurrent;
+                        country.lastTurnStats.materialsConsumed += neededForCurrent;
+                        buildCapacity -= neededForCurrent;
+                        
+                        const newUnit: Unit = {
+                            id: uuidv4(),
+                            designId: queue.designId,
+                            ownerId: country.ownerId,
+                            locationId: country.id, 
+                            hp: 1,
+                            cargo: { colonists: 0, materials: 0, population: 0 }
+                        };
+                        nextState.units.push(newUnit);
+                        country.lastTurnStats.unitsProduced += 1;
+                        queue.progress = 0;
+                    } else {
+                        country.materials -= buildCapacity;
+                        country.lastTurnStats.materialsConsumed += buildCapacity;
+                        queue.progress += buildCapacity;
+                        buildCapacity = 0; 
+                    }
+                }
+            }
+        }
+
+        let newPop = Math.floor(country.population * CONSTANTS.POPULATION_GROWTH);
+        if (newPop > country.maxPopulation) {
+            const overflow = newPop - country.maxPopulation;
+            country.colonists = (country.colonists || 0) + overflow;
+            newPop = country.maxPopulation;
+        }
+        country.population = newPop;
+    }
+  });
+
   return nextState;
 };
-

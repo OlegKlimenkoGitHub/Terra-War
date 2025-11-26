@@ -79,6 +79,10 @@ export interface CombatLog {
   attackerId: string;
   defenderId: string;
   winnerId: string;
+  // Snapshots of units involved for replay
+  attackerUnits: { id: string; designId: string }[];
+  defenderUnits: { id: string; designId: string }[];
+  
   rounds: CombatRound[];
   bombardmentResult?: {
     colonistsKilled: number;

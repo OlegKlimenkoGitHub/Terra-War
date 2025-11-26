@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { Country, Player, Army, Unit, CombatLog } from '../types';
+import { Country, Player, Army, Unit, CombatLog, PlayerType } from '../types';
 
 interface WorldMapProps {
   countries: Country[];
@@ -22,7 +23,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
 
   // Filter logs for current turn
   const activeBattles = combatLogs.filter(l => l.turn === currentTurn || l.turn === currentTurn - 1); 
-  // Note: displaying last turn battles too so user can see what happened
 
   return (
     <div className="w-full h-full bg-slate-950 flex items-center justify-center overflow-auto">
@@ -37,7 +37,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
           </filter>
         </defs>
         
-        {/* Connection Lines (Adjacency) - Optional visual aid */}
+        {/* Connection Lines (Adjacency) */}
         {countries.map(country => (
            country.neighbors.map(nId => {
               const neighbor = countries.find(c => c.id === nId);
@@ -57,7 +57,10 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
         {/* Countries */}
         {countries.map(country => {
           const ownerColor = getCountryColor(country.ownerId);
-          const armyCount = armies.filter(a => a.locationId === country.id).length;
+          
+          const localArmies = armies.filter(a => a.locationId === country.id);
+          const hasHumanArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.HUMAN);
+          const hasAiArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.AI);
           
           return (
             <g key={country.id} onClick={() => onCountryClick(country.id)} className="cursor-pointer transition-opacity hover:opacity-90 group">
@@ -81,9 +84,27 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
                 {country.name}
               </text>
               
-              {/* Flag/Army Indicator */}
-              {armyCount > 0 && (
-                <circle cx={country.center[0] + 10} cy={country.center[1] + 15} r="6" fill="red" stroke="white" strokeWidth="1" />
+              {/* Army Indicators */}
+              {hasHumanArmy && (
+                <circle 
+                  cx={country.center[0] - (hasAiArmy ? 6 : 0)} 
+                  cy={country.center[1] + 15} 
+                  r="6" 
+                  fill="#3b82f6" 
+                  stroke="white" 
+                  strokeWidth="1.5" 
+                  className="animate-pulse"
+                />
+              )}
+              {hasAiArmy && (
+                <circle 
+                  cx={country.center[0] + (hasHumanArmy ? 6 : 0)} 
+                  cy={country.center[1] + 15} 
+                  r="6" 
+                  fill="#ef4444" 
+                  stroke="white" 
+                  strokeWidth="1.5" 
+                />
               )}
             </g>
           );
