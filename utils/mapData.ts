@@ -1,3 +1,4 @@
+
 import { Country } from '../types';
 
 // Real-world map data subset for the game.
@@ -6,6 +7,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   // North America
   {
     id: 'US',
+    iso3: 'USA',
     name: 'United States',
     maxPopulation: 600,
     neighbors: ['CA', 'MX', 'RU', 'GB'], // RU via Bering, GB via Atlantic
@@ -13,6 +15,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'CA',
+    iso3: 'CAN',
     name: 'Canada',
     maxPopulation: 400,
     neighbors: ['US', 'RU', 'GL'], // GL=Greenland (if added), RU via Arctic
@@ -20,6 +23,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'MX',
+    iso3: 'MEX',
     name: 'Mexico',
     maxPopulation: 300,
     neighbors: ['US', 'BR', 'CO'], // Simplified path to S.America
@@ -28,6 +32,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   // South America
   {
     id: 'BR',
+    iso3: 'BRA',
     name: 'Brazil',
     maxPopulation: 400,
     neighbors: ['MX', 'AR', 'PE', 'CO', 'AF', 'NG'], // AF=Africa path
@@ -35,6 +40,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'AR',
+    iso3: 'ARG',
     name: 'Argentina',
     maxPopulation: 300,
     neighbors: ['BR', 'CL'],
@@ -43,6 +49,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   // Europe
   {
     id: 'GB',
+    iso3: 'GBR',
     name: 'United Kingdom',
     maxPopulation: 300,
     neighbors: ['US', 'FR', 'DE', 'NO'],
@@ -50,6 +57,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'FR',
+    iso3: 'FRA',
     name: 'France',
     maxPopulation: 350,
     neighbors: ['GB', 'DE', 'ES', 'IT'],
@@ -57,21 +65,48 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'DE',
+    iso3: 'DEU',
     name: 'Germany',
     maxPopulation: 350,
     neighbors: ['FR', 'PL', 'IT', 'DK'],
     center: { lat: 51.0, lng: 10.0 }
   },
   {
+    id: 'PL',
+    iso3: 'POL',
+    name: 'Poland',
+    maxPopulation: 400,
+    neighbors: ['DE', 'UA', 'RU'],
+    center: { lat: 52.0, lng: 19.0 }
+  },
+  {
+    id: 'UA',
+    iso3: 'UKR',
+    name: 'Ukraine',
+    maxPopulation: 500,
+    neighbors: ['RU', 'PL', 'TR'],
+    center: { lat: 49.0, lng: 32.0 }
+  },
+  {
     id: 'RU',
+    iso3: 'RUS',
     name: 'Russia',
     maxPopulation: 700,
     neighbors: ['US', 'CA', 'CN', 'MN', 'UA', 'FI', 'JP', 'TR', 'IR'],
     center: { lat: 61.0, lng: 95.0 }
   },
+  {
+    id: 'TR',
+    iso3: 'TUR',
+    name: 'Turkey',
+    maxPopulation: 450,
+    neighbors: ['RU', 'UA', 'SA', 'EG'],
+    center: { lat: 39.0, lng: 35.0 }
+  },
   // Asia
   {
     id: 'CN',
+    iso3: 'CHN',
     name: 'China',
     maxPopulation: 800,
     neighbors: ['RU', 'IN', 'MN', 'VN', 'KP', 'JP', 'AU'],
@@ -79,6 +114,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'IN',
+    iso3: 'IND',
     name: 'India',
     maxPopulation: 700,
     neighbors: ['CN', 'PK', 'SA', 'MM'], // SA via sea
@@ -86,6 +122,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'JP',
+    iso3: 'JPN',
     name: 'Japan',
     maxPopulation: 300,
     neighbors: ['CN', 'RU', 'KR', 'US'],
@@ -93,6 +130,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'SA',
+    iso3: 'SAU',
     name: 'Saudi Arabia',
     maxPopulation: 300,
     neighbors: ['IN', 'EG', 'TR', 'IR'],
@@ -101,6 +139,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   // Africa
   {
     id: 'EG',
+    iso3: 'EGY',
     name: 'Egypt',
     maxPopulation: 300,
     neighbors: ['SA', 'LY', 'SD', 'TR'],
@@ -108,6 +147,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   },
   {
     id: 'ZA',
+    iso3: 'ZAF',
     name: 'South Africa',
     maxPopulation: 300,
     neighbors: ['EG', 'BR', 'AU'], // Sea routes
@@ -116,6 +156,7 @@ export const INITIAL_COUNTRIES: Partial<Country>[] = [
   // Oceania
   {
     id: 'AU',
+    iso3: 'AUS',
     name: 'Australia',
     maxPopulation: 300,
     neighbors: ['CN', 'ID', 'ZA', 'NZ'],

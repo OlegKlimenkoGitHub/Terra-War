@@ -20,6 +20,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any | null>(null);
   const layerGroupRef = useRef<any | null>(null);
+  const geoJsonLayerRef = useRef<any | null>(null);
+  const [geoData, setGeoData] = useState<any>(null);
 
   // Initialize Map
   useEffect(() => {
@@ -45,11 +47,19 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
         maxZoom: 20
     }).addTo(map);
 
-    // Layer group for game objects to easily clear/redraw
+    // Layer group for UI elements (dots, labels)
     const layerGroup = L.layerGroup().addTo(map);
     
     mapInstanceRef.current = map;
     layerGroupRef.current = layerGroup;
+
+    // Fetch GeoJSON for country shapes
+    fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json')
+      .then(res => res.json())
+      .then(data => {
+         setGeoData(data);
+      })
+      .catch(err => console.error("Failed to load map data", err));
 
     return () => {
         if (mapInstanceRef.current) {
@@ -59,45 +69,76 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
     };
   }, []);
 
-  // Render Game State
+  // Render Polygons (Countries)
+  useEffect(() => {
+      if (!mapInstanceRef.current || !geoData) return;
+
+      if (geoJsonLayerRef.current) {
+          geoJsonLayerRef.current.remove();
+      }
+
+      const geoJsonLayer = L.geoJSON(geoData, {
+          filter: (feature: any) => {
+              // Only render countries that exist in our game logic
+              return countries.some(c => c.iso3 === feature.id);
+          },
+          style: (feature: any) => {
+              const country = countries.find(c => c.iso3 === feature.id);
+              const owner = players.find(p => p.id === country?.ownerId);
+              const isWild = !owner;
+              
+              const color = owner ? owner.color : '#475569';
+              
+              return {
+                  fillColor: isWild ? '#1e293b' : color,
+                  weight: 1,
+                  opacity: 1,
+                  color: '#94a3b8', // Border color
+                  fillOpacity: isWild ? 0.3 : 0.5
+              };
+          },
+          onEachFeature: (feature: any, layer: any) => {
+              const country = countries.find(c => c.iso3 === feature.id);
+              if (country) {
+                  layer.on('click', () => onCountryClick(country.id));
+                  layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.7, weight: 2, color: '#fff' }));
+                  layer.on('mouseout', () => {
+                      const owner = players.find(p => p.id === country.ownerId);
+                      layer.setStyle({ 
+                          fillOpacity: owner ? 0.5 : 0.3,
+                          weight: 1,
+                          color: '#94a3b8'
+                      });
+                  });
+              }
+          }
+      }).addTo(mapInstanceRef.current);
+      
+      // Send to back so labels/dots are on top
+      geoJsonLayer.bringToBack();
+      geoJsonLayerRef.current = geoJsonLayer;
+
+  }, [geoData, countries, players, onCountryClick]);
+
+  // Render Markers (Labels, Armies, Battles)
   useEffect(() => {
     if (!mapInstanceRef.current || !layerGroupRef.current) return;
 
-    // Clear previous layers
+    // Clear previous UI markers
     layerGroupRef.current.clearLayers();
 
     countries.forEach(country => {
-        // 1. Ownership Indicator (Circle)
-        const owner = players.find(p => p.id === country.ownerId);
-        const color = owner ? owner.color : '#475569'; // Slate-600 for neutral
-        const isWild = !owner;
-
-        // Radius scaling: Leaflet uses meters for Circle radius
-        const radius = Math.sqrt(country.maxPopulation) * 20000; 
-
-        const circle = L.circle([country.center.lat, country.center.lng], {
-            color: isWild ? '#64748b' : color,
-            weight: 1,
-            fillColor: isWild ? '#1e293b' : color,
-            fillOpacity: isWild ? 0.2 : 0.4,
-            radius: radius
-        });
-
-        circle.on('click', () => onCountryClick(country.id));
-        circle.on('mouseover', () => circle.setStyle({ fillOpacity: 0.6 }));
-        circle.on('mouseout', () => circle.setStyle({ fillOpacity: isWild ? 0.2 : 0.4 }));
-
-        circle.addTo(layerGroupRef.current);
-
-        // 2. Label Marker (Custom DivIcon)
+        // 1. Label Marker
         const labelIcon = L.divIcon({
             className: 'bg-transparent',
             html: `<div class="text-[10px] md:text-xs font-bold text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] text-center whitespace-nowrap -translate-x-1/2 -translate-y-1/2 pointer-events-none">${country.name}</div>`
         });
 
-        L.marker([country.center.lat, country.center.lng], { icon: labelIcon, interactive: false }).addTo(layerGroupRef.current);
+        // Use country.center for label placement
+        const labelMarker = L.marker([country.center.lat, country.center.lng], { icon: labelIcon, interactive: false });
+        labelMarker.addTo(layerGroupRef.current);
 
-        // 3. Army Dots
+        // 2. Army Dots
         const localArmies = armies.filter(a => a.locationId === country.id);
         const hasHumanArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.HUMAN);
         const hasAiArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.AI);
@@ -107,27 +148,27 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
             
             if (hasHumanArmy) {
                 const dotIcon = L.divIcon({
-                    className: 'bg-blue-500 border-2 border-white rounded-full shadow-lg',
+                    className: 'bg-blue-500 border-2 border-white rounded-full shadow-lg hover:scale-125 transition-transform',
                     iconSize: [12, 12]
                 });
-                const m = L.marker([country.center.lat + offsetLat, country.center.lng - 2], { icon: dotIcon });
+                const m = L.marker([country.center.lat + offsetLat, country.center.lng - 1.5], { icon: dotIcon });
                 m.on('click', () => onCountryClick(country.id));
                 m.addTo(layerGroupRef.current);
             }
 
             if (hasAiArmy) {
                 const dotIcon = L.divIcon({
-                    className: 'bg-red-500 border-2 border-white rounded-full shadow-lg',
+                    className: 'bg-red-500 border-2 border-white rounded-full shadow-lg hover:scale-125 transition-transform',
                     iconSize: [12, 12]
                 });
-                const m = L.marker([country.center.lat + offsetLat, country.center.lng + 2], { icon: dotIcon });
+                const m = L.marker([country.center.lat + offsetLat, country.center.lng + 1.5], { icon: dotIcon });
                 m.on('click', () => onCountryClick(country.id));
                 m.addTo(layerGroupRef.current);
             }
         }
     });
 
-    // 4. Battles
+    // 3. Battles
     const activeBattles = combatLogs.filter(l => l.turn === currentTurn || l.turn === currentTurn - 1);
     activeBattles.forEach(log => {
         const country = countries.find(c => c.id === log.locationId);
@@ -138,13 +179,13 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
                 iconSize: [24, 24]
             });
             
-            const m = L.marker([country.center.lat + 4, country.center.lng], { icon: battleIcon });
+            const m = L.marker([country.center.lat + 3, country.center.lng], { icon: battleIcon });
             m.on('click', () => onBattleClick(log.id));
             m.addTo(layerGroupRef.current);
         }
     });
 
-  }, [countries, players, units, armies, combatLogs, currentTurn]);
+  }, [countries, players, units, armies, combatLogs, currentTurn, onCountryClick, onBattleClick]);
 
   return (
     <div className="w-full h-full bg-slate-950 relative">

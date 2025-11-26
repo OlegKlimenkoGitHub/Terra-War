@@ -52,6 +52,7 @@ export interface FactoryQueueItem {
 
 export interface Country {
   id: string; // ISO-3166-1 alpha-2 code (e.g., 'US', 'CN')
+  iso3: string; // ISO-3166-1 alpha-3 code (e.g., 'USA', 'CHN') for GeoJSON
   name: string;
   ownerId: string | null;
   population: number;
