@@ -49,27 +49,44 @@ export default function App() {
     const humanPlayer: Player = { id: humanId, name: 'Human Commander', color: '#3b82f6', type: PlayerType.HUMAN };
     
     // Create AI players for other countries
+    // Logic update: Since we have more countries than players (16 countries, 8 players),
+    // we randomly assign 7 AI to remaining countries, leave rest as Wild.
+    
+    const availableCountries = gameState.countries.filter(c => c.id !== countryId);
+    // Shuffle
+    const shuffled = [...availableCountries].sort(() => 0.5 - Math.random());
+    const aiCount = 7;
+    const aiTargetCountries = shuffled.slice(0, aiCount);
+    
     const newPlayers = [humanPlayer];
+    
     const newCountries = gameState.countries.map(c => {
        const nc = { ...c };
-       if (c.id === countryId) {
-         nc.ownerId = humanId;
-         nc.population = 100;
-       } else {
-         const aiId = uuidv4();
-         const aiPlayer: Player = { 
-            id: aiId, 
-            name: `AI ${c.name}`, 
-            color: `#${Math.floor(Math.random()*16777215).toString(16)}`, 
-            type: PlayerType.AI 
-         };
-         newPlayers.push(aiPlayer);
-         nc.ownerId = aiId;
-         nc.population = 100;
-       }
+       // Reset stats
        nc.colonists = 0;
        nc.materials = 0;
        nc.lastTurnStats = { materialsProduced: 0, materialsConsumed: 0, unitsProduced: 0 };
+       nc.population = 100; // Base start
+
+       if (c.id === countryId) {
+         nc.ownerId = humanId;
+       } else {
+         const aiIndex = aiTargetCountries.findIndex(tc => tc.id === c.id);
+         if (aiIndex !== -1) {
+             const aiId = uuidv4();
+             const aiPlayer: Player = { 
+                id: aiId, 
+                name: `AI ${c.name}`, 
+                color: `#${Math.floor(Math.random()*16777215).toString(16)}`, 
+                type: PlayerType.AI 
+             };
+             newPlayers.push(aiPlayer);
+             nc.ownerId = aiId;
+         } else {
+             nc.ownerId = null; // Wild Land
+             nc.population = 50; // Weaker wild lands
+         }
+       }
        return nc;
     });
 
@@ -168,7 +185,7 @@ export default function App() {
          {gameState.gameStatus === 'LOBBY' && (
             <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 bg-slate-800/90 p-6 rounded-xl border border-blue-500 text-center shadow-2xl backdrop-blur-sm max-w-lg">
                <h2 className="text-2xl font-bold mb-2 text-white">Select Your Nation</h2>
-               <p className="text-slate-300 mb-4">Click on any country on the map to begin your conquest.</p>
+               <p className="text-slate-300 mb-4">Click on any colored country circle on the map to begin.</p>
                <button 
                  onClick={() => setActiveModal('RULES')}
                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm font-bold text-white border border-slate-500"

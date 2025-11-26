@@ -51,7 +51,7 @@ export interface FactoryQueueItem {
 }
 
 export interface Country {
-  id: string;
+  id: string; // ISO-3166-1 alpha-2 code (e.g., 'US', 'CN')
   name: string;
   ownerId: string | null;
   population: number;
@@ -67,9 +67,9 @@ export interface Country {
     unitsProduced: number;
   };
   // Geometry for map
-  path: string; // SVG Path
+  path?: string; // DEPRECATED: Used for SVG map
   neighbors: string[]; // IDs of neighbor countries
-  center: [number, number]; // [x, y] for labels/icons
+  center: { lat: number, lng: number }; // Geographic center
 }
 
 export interface CombatLog {
