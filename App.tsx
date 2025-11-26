@@ -12,36 +12,40 @@ import TurnReportModal from './components/TurnReportModal';
 import RulesModal from './components/RulesModal';
 import { v4 as uuidv4 } from 'uuid';
 
-// Ensure full Country object shape to avoid NaN issues
-const FULL_INITIAL_COUNTRIES = INITIAL_COUNTRIES.map(c => ({
-  ...c,
-  population: 100,
-  materials: 0,
-  colonists: 0,
-  factoryQueue: null,
-  ownerId: null,
-  lastTurnStats: { materialsProduced: 0, materialsConsumed: 0, unitsProduced: 0 }
-})) as Country[];
+const createInitialState = (): GameState => {
+  // Generate fresh country objects from static data every time a new game is created.
+  // This prevents reference pollution from previous games.
+  const freshCountries = INITIAL_COUNTRIES.map(c => ({
+      ...c,
+      population: 100,
+      materials: 0,
+      colonists: 0,
+      factoryQueue: null,
+      ownerId: null,
+      lastTurnStats: { materialsProduced: 0, materialsConsumed: 0, unitsProduced: 0 }
+  })) as Country[];
 
-const createInitialState = (): GameState => ({
-  turn: 1,
-  players: [],
-  countries: JSON.parse(JSON.stringify(FULL_INITIAL_COUNTRIES)), // Deep copy
-  designs: [],
-  units: [],
-  armies: [],
-  combatLogs: [],
-  selectedCountryId: null,
-  humanPlayerId: '',
-  gameStatus: 'LOBBY',
-  winnerId: null
-});
+  return {
+    turn: 1,
+    players: [],
+    countries: freshCountries,
+    designs: [],
+    units: [],
+    armies: [],
+    combatLogs: [],
+    selectedCountryId: null,
+    humanPlayerId: '',
+    gameStatus: 'LOBBY',
+    winnerId: null
+  };
+};
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(createInitialState());
   const [activeModal, setActiveModal] = useState<'NONE' | 'BUREAU' | 'COUNTRY' | 'FACTORY' | 'BATTLE' | 'ARMY' | 'REPORT' | 'RULES'>('NONE');
   const [viewingBattleId, setViewingBattleId] = useState<string | null>(null);
   const [turnReportLogs, setTurnReportLogs] = useState<CombatLog[]>([]);
+  const [isProcessingTurn, setIsProcessingTurn] = useState(false);
 
   // Initialize Game
   const startGame = (countryId: string) => {
@@ -100,27 +104,32 @@ export default function App() {
   };
 
   const handleNextTurn = () => {
-    const newState = processTurn(gameState);
-    
-    // Check for new combat logs
-    const previousLogCount = gameState.combatLogs.length;
-    const newLogs = newState.combatLogs.slice(previousLogCount);
-    
-    setGameState(newState);
+    setIsProcessingTurn(true);
 
-    if (newLogs.length > 0) {
-       setTurnReportLogs(newLogs);
-       setActiveModal('REPORT');
-    }
+    // Artificial delay to show the transition animation
+    setTimeout(() => {
+        const newState = processTurn(gameState);
+        
+        // Check for new combat logs
+        const previousLogCount = gameState.combatLogs.length;
+        const newLogs = newState.combatLogs.slice(previousLogCount);
+        
+        setGameState(newState);
+        setIsProcessingTurn(false);
+
+        if (newLogs.length > 0) {
+           setTurnReportLogs(newLogs);
+           setActiveModal('REPORT');
+        }
+    }, 2000);
   };
 
   const handleNewGame = () => {
-    if (window.confirm("Are you sure you want to abandon the current game and start over?")) {
-        setGameState(createInitialState());
-        setActiveModal('NONE');
-        setTurnReportLogs([]);
-        setViewingBattleId(null);
-    }
+      // Immediate reset without confirmation dialog to ensure responsiveness
+      setGameState(createInitialState());
+      setActiveModal('NONE');
+      setTurnReportLogs([]);
+      setViewingBattleId(null);
   };
 
   const handleCountryClick = (countryId: string) => {
@@ -137,7 +146,31 @@ export default function App() {
   const selectedCountry = gameState.countries.find(c => c.id === gameState.selectedCountryId);
 
   return (
-    <div className="flex h-screen w-screen bg-slate-900 text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen w-screen bg-slate-900 text-slate-100 overflow-hidden font-sans relative">
+      
+      {/* Turn Transition Overlay */}
+      {isProcessingTurn && (
+        <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center text-white animate-in fade-in duration-300">
+            <div className="text-8xl font-black mb-6 tracking-widest text-blue-500 animate-pulse drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]">
+               YEAR {gameState.turn + 1}
+            </div>
+            <div className="text-2xl text-slate-400 tracking-wider font-mono">
+                PROCESSING GLOBAL CONFLICTS...
+            </div>
+            {/* Loading Bar */}
+            <div className="w-96 h-1 bg-slate-800 rounded mt-8 overflow-hidden">
+                <div className="h-full bg-blue-500 animate-[loading_2s_ease-in-out_infinite] w-full origin-left"></div>
+            </div>
+            <style>{`
+                @keyframes loading {
+                    0% { transform: scaleX(0); }
+                    50% { transform: scaleX(0.7); }
+                    100% { transform: scaleX(1); }
+                }
+            `}</style>
+        </div>
+      )}
+
       {/* Sidebar / Topbar */}
       <div className="absolute top-0 left-0 w-full h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6 z-10 shadow-lg">
         <div className="flex items-center gap-4">
@@ -172,7 +205,8 @@ export default function App() {
              </button>
              <button 
                 onClick={handleNextTurn}
-                className="px-6 py-2 bg-green-600 hover:bg-green-500 rounded text-sm font-bold shadow-md transition-all hover:scale-105"
+                className="px-6 py-2 bg-green-600 hover:bg-green-500 rounded text-sm font-bold shadow-md transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isProcessingTurn}
              >
                NEXT YEAR &gt;&gt;
              </button>
@@ -196,6 +230,7 @@ export default function App() {
          )}
          
          <WorldMap 
+            key={gameState.gameStatus} // Force re-mount on state change to clear map layers
             countries={gameState.countries} 
             players={gameState.players}
             units={gameState.units}

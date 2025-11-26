@@ -16,12 +16,15 @@ interface WorldMapProps {
   currentTurn: number;
 }
 
+// Global cache for GeoJSON to prevent re-fetching on component remount (New Game)
+let CACHED_GEOJSON: any = null;
+
 const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, combatLogs, onCountryClick, onBattleClick, currentTurn }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any | null>(null);
   const layerGroupRef = useRef<any | null>(null);
   const geoJsonLayerRef = useRef<any | null>(null);
-  const [geoData, setGeoData] = useState<any>(null);
+  const [geoData, setGeoData] = useState<any>(CACHED_GEOJSON);
 
   // Initialize Map
   useEffect(() => {
@@ -52,13 +55,19 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
     mapInstanceRef.current = map;
     layerGroupRef.current = layerGroup;
 
-    // Fetch GeoJSON for country shapes
-    fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json')
-      .then(res => res.json())
-      .then(data => {
-         setGeoData(data);
-      })
-      .catch(err => console.error("Failed to load map data", err));
+    // Fetch GeoJSON for country shapes if not cached
+    if (!CACHED_GEOJSON) {
+        fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json')
+        .then(res => res.json())
+        .then(data => {
+            CACHED_GEOJSON = data;
+            setGeoData(data);
+        })
+        .catch(err => console.error("Failed to load map data", err));
+    } else {
+        // If cached, we already set it via useState initial value, but ensure consistency
+        setGeoData(CACHED_GEOJSON);
+    }
 
     return () => {
         if (mapInstanceRef.current) {
@@ -134,35 +143,37 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
         });
 
         // Use country.center for label placement
-        const labelMarker = L.marker([country.center.lat, country.center.lng], { icon: labelIcon, interactive: false });
-        labelMarker.addTo(layerGroupRef.current);
+        if (country.center) {
+            const labelMarker = L.marker([country.center.lat, country.center.lng], { icon: labelIcon, interactive: false });
+            labelMarker.addTo(layerGroupRef.current);
 
-        // 2. Army Dots
-        const localArmies = armies.filter(a => a.locationId === country.id);
-        const hasHumanArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.HUMAN);
-        const hasAiArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.AI);
+            // 2. Army Dots
+            const localArmies = armies.filter(a => a.locationId === country.id);
+            const hasHumanArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.HUMAN);
+            const hasAiArmy = localArmies.some(a => players.find(p => p.id === a.ownerId)?.type === PlayerType.AI);
 
-        if (hasHumanArmy || hasAiArmy) {
-            const offsetLat = -2; 
-            
-            if (hasHumanArmy) {
-                const dotIcon = L.divIcon({
-                    className: 'bg-blue-500 border-2 border-white rounded-full shadow-lg hover:scale-125 transition-transform',
-                    iconSize: [12, 12]
-                });
-                const m = L.marker([country.center.lat + offsetLat, country.center.lng - 1.5], { icon: dotIcon });
-                m.on('click', () => onCountryClick(country.id));
-                m.addTo(layerGroupRef.current);
-            }
+            if (hasHumanArmy || hasAiArmy) {
+                const offsetLat = -2; 
+                
+                if (hasHumanArmy) {
+                    const dotIcon = L.divIcon({
+                        className: 'bg-blue-500 border-2 border-white rounded-full shadow-lg hover:scale-125 transition-transform',
+                        iconSize: [12, 12]
+                    });
+                    const m = L.marker([country.center.lat + offsetLat, country.center.lng - 1.5], { icon: dotIcon });
+                    m.on('click', () => onCountryClick(country.id));
+                    m.addTo(layerGroupRef.current);
+                }
 
-            if (hasAiArmy) {
-                const dotIcon = L.divIcon({
-                    className: 'bg-red-500 border-2 border-white rounded-full shadow-lg hover:scale-125 transition-transform',
-                    iconSize: [12, 12]
-                });
-                const m = L.marker([country.center.lat + offsetLat, country.center.lng + 1.5], { icon: dotIcon });
-                m.on('click', () => onCountryClick(country.id));
-                m.addTo(layerGroupRef.current);
+                if (hasAiArmy) {
+                    const dotIcon = L.divIcon({
+                        className: 'bg-red-500 border-2 border-white rounded-full shadow-lg hover:scale-125 transition-transform',
+                        iconSize: [12, 12]
+                    });
+                    const m = L.marker([country.center.lat + offsetLat, country.center.lng + 1.5], { icon: dotIcon });
+                    m.on('click', () => onCountryClick(country.id));
+                    m.addTo(layerGroupRef.current);
+                }
             }
         }
     });
@@ -171,7 +182,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, players, units, armies, 
     const activeBattles = combatLogs.filter(l => l.turn === currentTurn || l.turn === currentTurn - 1);
     activeBattles.forEach(log => {
         const country = countries.find(c => c.id === log.locationId);
-        if (country) {
+        if (country && country.center) {
             const battleIcon = L.divIcon({
                 className: 'text-2xl animate-pulse cursor-pointer hover:scale-110 transition-transform',
                 html: '⚔️',
